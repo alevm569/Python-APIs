@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+pymysql
+python-dotenv
+requests
+pytest
+httpx
+email-validator
