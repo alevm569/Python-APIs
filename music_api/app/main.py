@@ -3,13 +3,14 @@ from sqlmodel import Session
 from sqlalchemy import text
 from app.db import get_session, init_db
 from app.routers import users, preferences
-
+from app.routers import spotify
 
 app = FastAPI()
 
 # Rutas
 app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(preferences.router, prefix="/users/{user_id}/preferences", tags=["preferences"])
+app.include_router(spotify.router, prefix="/spotify", tags=["spotify"])
 
 @app.get("/")
 def root():
