@@ -103,15 +103,58 @@ FLUSH PRIVILEGES;
   "full_name": "Valery Villarruel"
 }
 ```
+```python
+def create_user(session: Session, user_in: UserCreate) -> User:
+    stmt = select(User).where(
+        (User.email == user_in.email) | (User.username == user_in.username)
+    )
+    exists = session.exec(stmt).first()
+    if exists:
+        raise ValueError("Usuario con ese email o username ya existe.")
 
+    user = User.from_orm(user_in)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+```
+Descripción:
+
+- Verifica si email o username ya existen.
+
+- Crea el usuario validado por Pydantic (UserCreate).
+
+- Guarda y retorna el objeto persistido.
+  
 ### Listar usuarios  
 `GET /users/`
+```python
+def list_users(session: Session, offset: int = 0, limit: int = 100):
+    stmt = select(User).offset(offset).limit(limit)
+    return session.exec(stmt).all()
+```
 
 ### Obtener usuario por ID  
 `GET /users/{id}`
+```python
+def get_user(session: Session, user_id: int) -> Optional[User]:
+    return session.get(User, user_id)
+```
 
 ### Actualizar usuario  
 `PUT /users/{id}`
+```python
+def update_user(session: Session, user_id: int, data: dict):
+    user = session.get(User, user_id)
+    if not user:
+        return None
+    for k, v in data.items():
+        setattr(user, k, v)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+```
 
 ### Eliminar usuario  
 `DELETE /users/{id}`
@@ -127,6 +170,25 @@ FLUSH PRIVILEGES;
   "favorite_artists": ["Arctic Monkeys", "The Strokes"],
   "favorite_tracks": ["Do I Wanna Know", "505"]
 }
+```
+
+```python
+def add_preference(session: Session, user_id: int, pref_in: PreferenceCreate) -> Preference:
+    user = session.get(User, user_id)
+    if not user:
+        raise ValueError("Usuario no encontrado")
+
+    pref = Preference(
+        genre=pref_in.genre,
+        favorite_artists=pref_in.favorite_artists,
+        favorite_tracks=pref_in.favorite_tracks,
+        user_id=user_id
+    )
+
+    session.add(pref)
+    session.commit()
+    session.refresh(pref)
+    return pref
 ```
 
 ### Listar preferencias  
@@ -148,7 +210,34 @@ Toda la lógica está en:
 ```
 app/spotify_client.py
 ```
+Resumen breve
+```python
+def get_token():
+    global _token, _token_expires
 
+    if _token and time.time() < _token_expires - 30:
+        return _token
+
+    auth = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}"}
+    data = {"grant_type": "client_credentials"}
+
+    response = requests.post(TOKEN_URL, headers=headers, data=data)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Error obteniendo token de Spotify")
+
+    token_data = response.json()
+
+    _token = token_data["access_token"]
+    _token_expires = time.time() + token_data.get("expires_in", 3600)
+
+    return _token
+```
+- Cachea el token en memoria.
+- Evita solicitudes innecesarias al backend de Spotify.
+- Maneja vencimiento del token (expires_in).
+  
 ## Búsquedas en Spotify
 
 ### Buscar artistas  
@@ -158,10 +247,20 @@ app/spotify_client.py
 `GET /spotify/search?q=uki&type=track`
 
 ## ⭐ Endpoint: Favoritos del Usuario
-
+`GET /spotify/users/1/spotify/favorites`
 Este endpoint:
 
 - Obtiene preferencias del usuario de la db
 - Busca el primer artista favorito en Spotify
 - Obtiene sus top tracks
-- Busca información detallada del segundo track favorito
+- Busca información detallada del segundo track favorito registrado del usuario
+
+## Conclusiones y Observaciones
+- El token de Spotify expira aproximadamente cada hora; el sistema implementa cache y renovación automática.
+- La arquitectura separa CRUD, modelos, rutas y cliente externo, lo cual facilita mantenimiento y escalabilidad.
+- Los modelos usan Pydantic (via SQLModel) para garantizar que datos inválidos nunca entren a la base de datos.
+- La API maneja fallos externos (Spotify) mediante códigos HTTP apropiados.
+- La estructura del proyecto permite agregar nuevos endpoints sin afectar los existentes.
+- Los favoritos del usuario ilustran cómo combinar información interna (base de datos) con servicios externos (Spotify).
+  
+### URL
